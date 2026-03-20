@@ -1,6 +1,8 @@
 # attendance_session/urls.py
 from django.urls import path
 from .views import (
+    GetSessionCredentialsView,
+    GetTeacherSessionCredentialsView,
     StartSessionView,
     PassTokenView,
     AddExceptionView,
@@ -8,7 +10,10 @@ from .views import (
     MarkExceptionPresentView,
     FinalizeSessionView,
     ActiveSessionsView,
-    ClassroomSessionStatusView
+    ClassroomSessionStatusView,
+    AddMasterNodeView,
+    RemoveMasterNodeView,
+    ListMasterNodesView
 )
 #path('session/', include('attendance_session.urls')),
 urlpatterns = [
@@ -29,6 +34,9 @@ urlpatterns = [
 
     # List all active sessions
     path('teacher/sessions/active/', ActiveSessionsView.as_view(), name='active-sessions'),
+    
+    # NEW: Get session credentials for the teacher to act as a receiver
+    path('teacher/classroom/<int:classroom_id>/credentials/', GetTeacherSessionCredentialsView.as_view(), name='teacher-session-credentials'),
 
     # ---------------------------
     # Student-only endpoints
@@ -44,6 +52,14 @@ urlpatterns = [
     
     #check if the classroom has an active session
     path('session/status/<int:classroom_id>/', ClassroomSessionStatusView.as_view(), name='classroom-session-status'),
+    
+    #get all the session keys
+    path('classroom/<int:classroom_id>/credentials/', GetSessionCredentialsView.as_view(), name='get_session_credentials'),
+    
+    # Master Node endpoints
+    path('teacher/classroom/<int:classroom_id>/master-node/add/', AddMasterNodeView.as_view(), name='add-master-node'),
+    path('teacher/classroom/<int:classroom_id>/master-node/remove/', RemoveMasterNodeView.as_view(), name='remove-master-node'),
+    path('teacher/classroom/<int:classroom_id>/master-node/list/', ListMasterNodesView.as_view(), name='list-master-nodes'),
 ]
 
 

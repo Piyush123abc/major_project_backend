@@ -18,6 +18,12 @@ from .views import (
     TeacherClassroomViewSet,
     ProfileView,
     TeacherUpdateProposalView,
+    # --- NEW IMPORTS BELOW ---
+    CreateGroupAbsenceProposalView,
+    JoinGroupAbsenceProposalView,
+    StudentGroupProposalHistoryView,
+    TeacherPendingGroupProposalsView,
+    TeacherUpdateGroupProposalView,
 )
 from .views import ClassroomSearchView
 
@@ -67,5 +73,30 @@ urlpatterns = [
     path('absence-proposals/list/', StudentAbsenceProposalListView.as_view(), name='list-absence-proposals'),
     path('teacher/absence-proposals/pending/', TeacherPendingProposalsView.as_view(), name='teacher-pending-proposals'),
     path('teacher/absence-proposal/<int:id>/update/', TeacherUpdateProposalView.as_view(), name='teacher-update-proposal'),
+    
+    # ==========================================
+    # GROUP ABSENCE PROPOSALS
+    # ==========================================
+    
+    # ---------------------------
+    # Student Endpoints
+    # ---------------------------
+    # Team Leader creates the group proposal
+    path('group-absence-proposals/create/', CreateGroupAbsenceProposalView.as_view(), name='create-group-absence-proposal'),
+    
+    # Normal student joins using group_id and join_password
+    path('group-absence-proposals/join/', JoinGroupAbsenceProposalView.as_view(), name='join-group-absence-proposal'),
+    
+    # Student views their group proposal history
+    path('group-absence-proposals/history/', StudentGroupProposalHistoryView.as_view(), name='student-group-absence-history'),
+
+    # ---------------------------
+    # Teacher Endpoints
+    # ---------------------------
+    # Teacher views pending group proposals for their students
+    path('teacher/group-absence-proposals/pending/', TeacherPendingGroupProposalsView.as_view(), name='teacher-pending-group-proposals'),
+    
+    # Teacher approves or rejects the group proposal
+    path('teacher/group-absence-proposal/<int:id>/update/', TeacherUpdateGroupProposalView.as_view(), name='teacher-update-group-proposal'),
 
 ]

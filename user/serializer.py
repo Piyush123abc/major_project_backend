@@ -1,6 +1,9 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import AbsenceProposal, Student, Teacher, Classroom, Enrollment, AttendanceRecord
+from .models import (
+    AbsenceProposal, Student, Teacher, Classroom, Enrollment, AttendanceRecord,
+    GroupAbsenceProposal, GroupAbsenceParticipant
+)
 from django.utils import timezone
 
 # ---------------------------
@@ -160,3 +163,67 @@ class AbsenceProposalSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         # Allow updating status, reason, dates, description, document
         return super().update(instance, validated_data)
+    
+# ---------------------------
+# Group Absence Proposal Serializers
+# ---------------------------
+
+class GroupAbsenceParticipantSerializer(serializers.ModelSerializer):
+    """Read-only serializer to display participant details inside the group proposal."""
+    student_uid = serializers.CharField(source='student.uid', read_only=True)
+    student_name = serializers.CharField(source='student.user.username', read_only=True)
+
+    class Meta:
+        model = GroupAbsenceParticipant
+        fields = ['id', 'student_uid', 'student_name', 'status']
+
+class GroupAbsenceProposalSerializer(serializers.ModelSerializer):
+    # This displays the participants when reading the data
+    participants = GroupAbsenceParticipantSerializer(source='participants.all', many=True, read_only=True)
+    leader_name = serializers.CharField(source='created_by.user.username', read_only=True)
+    
+    # Provide full URL to the uploaded document
+    document_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = GroupAbsenceProposal
+        fields = [
+            'id', 'title', 'reason_type', 'reason_description', 
+            'document', 'document_url', 'start_datetime', 'end_datetime', 
+            'status', 'timestamp', 'participants', 'join_password', 'leader_name'
+        ]
+        read_only_fields = ['status', 'timestamp', 'created_by']
+        extra_kwargs = {
+            # Make the password write-only so it isn't exposed in API responses
+            'join_password': {'write_only': True} 
+        }
+
+    def get_document_url(self, obj):
+        if obj.document:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.document.url)
+            return obj.document.url
+        return None
+
+    def create(self, validated_data):
+        # 1. Assign the logged-in student as the 'created_by' leader
+        request = self.context.get('request')
+        leader_student = None
+        
+        if request and hasattr(request.user, 'student'):
+            leader_student = request.user.student
+            validated_data['created_by'] = leader_student
+        
+        # 2. Create the main Group Proposal 
+        # (join_password and all other fields are automatically saved here)
+        proposal = GroupAbsenceProposal.objects.create(**validated_data)
+        
+        # 3. Automatically attach the Team Leader as the first participant
+        if leader_student:
+            GroupAbsenceParticipant.objects.create(
+                group_proposal=proposal,
+                student=leader_student
+            )
+                
+        return proposal

@@ -1,14 +1,18 @@
 from rest_framework import generics, viewsets, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .models import AbsenceProposal, Student, Teacher, Classroom, Enrollment, AttendanceRecord
+from .models import (
+    AbsenceProposal, Student, Teacher, Classroom, Enrollment, AttendanceRecord,
+    GroupAbsenceProposal, GroupAbsenceParticipant
+)
 from .serializer import (
     AbsenceProposalSerializer,
     StudentSerializer,
     TeacherSerializer,
     ClassroomSerializer,
     EnrollmentSerializer,
-    AttendanceRecordSerializer
+    AttendanceRecordSerializer,
+    GroupAbsenceProposalSerializer
 )
 from .permission import IsStudent, IsTeacher
 from rest_framework import status
@@ -264,3 +268,126 @@ class TeacherUpdateProposalView(generics.UpdateAPIView):
 
         serializer = self.get_serializer(proposal)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+# ==========================================
+# GROUP ABSENCE PROPOSAL VIEWS
+# ==========================================
+
+# ------------------------------
+# Student Views for Group Proposals
+# ------------------------------
+
+class CreateGroupAbsenceProposalView(generics.CreateAPIView):
+    """Team Leader creates a new group proposal."""
+    serializer_class = GroupAbsenceProposalSerializer
+    permission_classes = [permissions.IsAuthenticated, IsStudent]
+
+
+class JoinGroupAbsenceProposalView(APIView):
+    """Normal student joins an existing group using ID and password."""
+    permission_classes = [permissions.IsAuthenticated, IsStudent]
+
+    def post(self, request):
+        student = get_object_or_404(Student, user=request.user)
+        group_id = request.data.get('group_id')
+        password = request.data.get('join_password')
+
+        if not group_id or not password:
+            return Response({"error": "group_id and join_password are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        proposal = get_object_or_404(GroupAbsenceProposal, id=group_id)
+
+        if proposal.join_password != password:
+            return Response({"error": "Invalid password"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Check if student is already in the group
+        if GroupAbsenceParticipant.objects.filter(group_proposal=proposal, student=student).exists():
+            return Response({"error": "You have already joined this group proposal."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Attach student to the group
+        GroupAbsenceParticipant.objects.create(group_proposal=proposal, student=student)
+        return Response({"message": f"Successfully joined {proposal.title}"}, status=status.HTTP_200_OK)
+
+
+class StudentGroupProposalHistoryView(generics.ListAPIView):
+    """Shows all group proposals the logged-in student is a part of (Leader or Member)."""
+    serializer_class = GroupAbsenceProposalSerializer
+    permission_classes = [permissions.IsAuthenticated, IsStudent]
+
+    def get_queryset(self):
+        student = get_object_or_404(Student, user=self.request.user)
+        # Fetch proposals where this student is linked as a participant
+        return GroupAbsenceProposal.objects.filter(
+            participants__student=student
+        ).distinct().order_by('-timestamp')
+
+
+# ------------------------------
+# Teacher Views for Group Proposals
+# ------------------------------
+
+class TeacherPendingGroupProposalsView(generics.ListAPIView):
+    """Shows pending group proposals containing students enrolled in the teacher's classes."""
+    serializer_class = GroupAbsenceProposalSerializer
+    permission_classes = [permissions.IsAuthenticated, IsTeacher]
+
+    def get_queryset(self):
+        teacher = get_object_or_404(Teacher, user=self.request.user)
+        teacher_classrooms = Classroom.objects.filter(teacher=teacher)
+        
+        # Find group proposals that have participants enrolled in this teacher's classes
+        return GroupAbsenceProposal.objects.filter(
+            status="PENDING",
+            participants__student__enrollments__classroom__in=teacher_classrooms
+        ).distinct().order_by('-timestamp')
+
+
+class TeacherUpdateGroupProposalView(APIView):
+    """Teacher approves/rejects the group. Updates attendance for affected students."""
+    permission_classes = [permissions.IsAuthenticated, IsTeacher]
+
+    def patch(self, request, id):
+        teacher = get_object_or_404(Teacher, user=request.user)
+        proposal = get_object_or_404(GroupAbsenceProposal, id=id)
+
+        action = request.data.get("status")
+        if action not in ["APPROVED", "REJECTED"]:
+            return Response({"detail": "Invalid action. Must be APPROVED or REJECTED"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Find classrooms belonging to this teacher
+        teacher_classrooms = Classroom.objects.filter(teacher=teacher)
+        
+        # Find participants in this proposal who belong to the teacher's classrooms
+        participants = proposal.participants.filter(
+            student__enrollments__classroom__in=teacher_classrooms
+        )
+
+        if not participants.exists():
+            return Response({"detail": "No students in this group belong to your classes."}, status=status.HTTP_403_FORBIDDEN)
+
+        # Update the main proposal status (for demo purposes, 1 teacher approval approves the group)
+        proposal.status = action
+        proposal.save()
+
+        # Update the individual participant status
+        participants.update(status=action)
+
+        # Update the actual Attendance Records for these students during the event timeframe
+        participant_students = [p.student for p in participants]
+        
+        records = AttendanceRecord.objects.filter(
+            student__in=participant_students,
+            classroom__in=teacher_classrooms,
+            timestamp__gte=proposal.start_datetime,
+            timestamp__lte=proposal.end_datetime
+        )
+
+        if action == "APPROVED":
+            records.update(status="PRESENT")
+        else:
+            records.update(status="ABSENT")
+
+        return Response({
+            "message": f"Group proposal {action.lower()} successfully. Updated {records.count()} attendance records."
+        }, status=status.HTTP_200_OK)

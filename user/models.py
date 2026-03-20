@@ -116,3 +116,97 @@ class AbsenceProposal(models.Model):
 
     def __str__(self):
         return f"{self.student.user.username} | {self.reason_type} | {self.status}"
+    
+    
+def group_absence_document_upload_path(instance, filename):
+    """
+    File will be uploaded to:
+    media/group_absence_proposals/leader_<id>/YYYYMMDD_HHMMSS_filename.ext
+    """
+    import os
+    from django.utils import timezone
+
+    base, ext = os.path.splitext(filename)
+    timestamp = timezone.now().strftime("%Y%m%d_%H%M%S")
+    unique_filename = f"{timestamp}_{base}{ext}"
+    return f'group_absence_proposals/leader_{instance.created_by.id}/{unique_filename}'
+
+
+class GroupAbsenceProposal(models.Model):
+    """The main group event/leave created by a team leader."""
+    STATUS_CHOICES = (
+        ("PENDING", "Pending"),
+        ("APPROVED", "Approved"),
+        ("REJECTED", "Rejected"),
+    )
+
+    REASON_CHOICES = (
+        ("MEDICAL", "Medical"),
+        ("EVENT", "Event"),
+        ("ACADEMIC", "Academic"),
+        ("SPORTS", "Sports"), # Added sports as it's common for groups
+        ("OTHER", "Other"),
+    )
+
+    title = models.CharField(max_length=200) # e.g., "Smart India Hackathon Finals"
+    created_by = models.ForeignKey(
+        "Student", 
+        on_delete=models.CASCADE, 
+        related_name="created_group_proposals"
+    ) # The student who submitted the form
+    
+# Added a default value so migrations run smoothly without prompting
+    join_password = models.CharField(max_length=50, default='1234')
+    
+    reason_type = models.CharField(max_length=20, choices=REASON_CHOICES)
+    reason_description = models.TextField(blank=True, null=True)
+    
+    # Document is NOT compulsory (blank=True, null=True)
+    document = models.FileField(
+        upload_to=group_absence_document_upload_path,
+        blank=True,
+        null=True
+    )
+    
+    start_datetime = models.DateTimeField()
+    end_datetime = models.DateTimeField()
+    
+    # Overall status of the entire group event
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="PENDING")
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-timestamp']
+
+    def __str__(self):
+        return f"{self.title} (Leader: {self.created_by.user.username}) | {self.status}"
+
+
+class GroupAbsenceParticipant(models.Model):
+    """The individual 'solo proposal' connecting a student to a group event."""
+    STATUS_CHOICES = (
+        ("PENDING", "Pending"),
+        ("APPROVED", "Approved"),
+        ("REJECTED", "Rejected"),
+    )
+
+    group_proposal = models.ForeignKey(
+        GroupAbsenceProposal, 
+        on_delete=models.CASCADE, 
+        related_name="participants"
+    )
+    student = models.ForeignKey(
+        "Student", 
+        on_delete=models.CASCADE, 
+        related_name="group_participations"
+    )
+    
+    # Individual status (in case 1 student is rejected but the rest of the group is approved)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="PENDING")
+
+    class Meta:
+        # A student can only be added to a specific group proposal once
+        unique_together = ('group_proposal', 'student')
+
+    def __str__(self):
+        return f"{self.student.user.username} -> {self.group_proposal.title} | {self.status}"
