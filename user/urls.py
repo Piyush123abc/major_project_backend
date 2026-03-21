@@ -24,6 +24,7 @@ from .views import (
     StudentGroupProposalHistoryView,
     TeacherPendingGroupProposalsView,
     TeacherUpdateGroupProposalView,
+    UpdateFCMTokenView,
 )
 from .views import ClassroomSearchView
 
@@ -55,6 +56,9 @@ urlpatterns = [
     path('login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('login/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 
+    # NEW: Updates the Firebase token for the logged-in Student or Teacher
+    path('profile/update-fcm/', UpdateFCMTokenView.as_view(), name='update-fcm-token'),
+    
     # Student enrollment & attendance
     path('student/enroll/', EnrollmentCreateView.as_view(), name='student-enroll'),
     path('student/enrollments/', StudentEnrollmentListView.as_view(), name='student-enrollments'),

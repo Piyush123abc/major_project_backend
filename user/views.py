@@ -144,6 +144,39 @@ class ProfileView(APIView):
             serializer = TeacherSerializer(teacher)
         return Response(serializer.data)
 
+class UpdateFCMTokenView(APIView):
+    """
+    Allows a logged-in Student or Teacher to update their Firebase Cloud Messaging (FCM) token.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        fcm_token = request.data.get('fcm_token')
+
+        if not fcm_token:
+            return Response(
+                {"error": "FCM token is required."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user = request.user
+
+        # Check if the logged-in user is a Student
+        if hasattr(user, 'student'):
+            user.student.fcm_token = fcm_token
+            user.student.save()
+            return Response({"message": "Student FCM token updated successfully!"}, status=status.HTTP_200_OK)
+        
+        # Check if the logged-in user is a Teacher
+        elif hasattr(user, 'teacher'):
+            user.teacher.fcm_token = fcm_token
+            user.teacher.save()
+            return Response({"message": "Teacher FCM token updated successfully!"}, status=status.HTTP_200_OK)
+        
+        # Fallback
+        else:
+            return Response({"error": "User profile not found."}, status=status.HTTP_404_NOT_FOUND)
+        
 
 class CreateAbsenceProposalView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -391,3 +424,4 @@ class TeacherUpdateGroupProposalView(APIView):
         return Response({
             "message": f"Group proposal {action.lower()} successfully. Updated {records.count()} attendance records."
         }, status=status.HTTP_200_OK)
+        

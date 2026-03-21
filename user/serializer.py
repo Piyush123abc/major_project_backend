@@ -25,7 +25,8 @@ class StudentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Student
-        fields = ['id', 'username', 'password', 'uid', 'branch', 'auth_key']
+        # ✅ Added 'fcm_token' to the fields list
+        fields = ['id', 'username', 'password', 'uid', 'branch', 'auth_key', 'fcm_token']
 
     def create(self, validated_data):
         username = validated_data.pop('username')
@@ -33,6 +34,7 @@ class StudentSerializer(serializers.ModelSerializer):
         auth_key = validated_data.pop('auth_key', None)  # optional
 
         user = User.objects.create_user(username=username, password=password)
+        # Because of **validated_data, fcm_token will automatically be saved if provided
         student = Student.objects.create(user=user, auth_key=auth_key, **validated_data)
         return student
 
@@ -51,12 +53,14 @@ class TeacherSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Teacher
-        fields = ['id', 'username', 'password', 'uid', 'department']
+        # ✅ Added 'fcm_token' to the fields list
+        fields = ['id', 'username', 'password', 'uid', 'department', 'fcm_token']
 
     def create(self, validated_data):
         username = validated_data.pop('username')
         password = validated_data.pop('password')
         user = User.objects.create_user(username=username, password=password)
+        # **validated_data will handle saving the fcm_token
         teacher = Teacher.objects.create(user=user, **validated_data)
         return teacher
 
