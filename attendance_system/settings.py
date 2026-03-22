@@ -13,6 +13,8 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 from datetime import timedelta
 import os
+import firebase_admin
+from firebase_admin import credentials
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -158,3 +160,18 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 USE_TZ = True
 TIME_ZONE = 'Asia/Kolkata'
 DATETIME_FORMAT = 'iso-8601'
+
+# ==========================================
+# FIREBASE ADMIN SDK INITIALIZATION
+# ==========================================
+# Point to the JSON file we just hid in .gitignore
+FIREBASE_CREDENTIALS_PATH = os.path.join(BASE_DIR, 'firebase_credentials.json')
+
+# Initialize the app only once
+if not firebase_admin._apps:
+    try:
+        cred = credentials.Certificate(FIREBASE_CREDENTIALS_PATH)
+        firebase_admin.initialize_app(cred)
+        print("✅ Firebase Admin SDK Initialized Successfully")
+    except Exception as e:
+        print(f"⚠️ Firebase Initialization Error: {e}")

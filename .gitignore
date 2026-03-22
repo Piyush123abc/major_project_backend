@@ -30,3 +30,7 @@ staticfiles/
 # Migrations (optional, depends on team)
 **/migrations/*.py
 !**/migrations/__init__.py
+
+# Firebase Admin SDK Credentials
+firebase_credentials.json
+

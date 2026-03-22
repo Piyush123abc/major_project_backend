@@ -6,6 +6,8 @@ from django.utils import timezone
 from user.models import Student, Teacher, Classroom, AttendanceRecord
 from user.permission import IsTeacher, IsStudent
 import secrets
+from attendance_system.utils import send_fcm_notification
+from django.utils.timezone import localtime
 
 # ---------------------------
 # Session storage (in-memory)
@@ -34,6 +36,9 @@ class SessionObject:
         # Track student UIDs acting as verified master nodes
         self.master_nodes = set()
         
+        # Track who has received the "Connected" notification
+        self.notified_uids = set()
+        
         # ==========================================
         # CRYPTOGRAPHIC SESSION DATA
         # ==========================================
@@ -41,6 +46,7 @@ class SessionObject:
         self.student_crypto_data = {}  
         self.node_id_to_uid = {}       
         
+        self.node_id_to_uid[0] = teacher_uid
         # PERFECT 1-to-N COUNTER
         for index, uid in enumerate(student_uids, start=1):
             seed = secrets.token_bytes(16).hex()
@@ -90,7 +96,47 @@ class SessionObject:
         pending = self.exception_list - self.marked_exceptions
         print(f"   {list(pending) if pending else 'No pending exceptions!'}")
         print("=========================================\n")
+        
+    # ---------------------------
+    # 
+    # ---------------------------
+    def check_and_notify_new_connections(self):
+        visited = set()
+        queue = [self.teacher_uid] + list(self.master_nodes)
+        
+        for node in queue:
+            if node in self.graph:
+                visited.add(node)
 
+        idx = 0
+        while idx < len(queue):
+            current = queue[idx]
+            idx += 1
+            for neighbor in self.graph.get(current, []):
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append(neighbor)
+
+        newly_verified = []
+        for uid in visited:
+            if uid != self.teacher_uid and uid not in self.notified_uids:
+                newly_verified.append(uid)
+                self.notified_uids.add(uid)
+
+        if newly_verified:
+            from user.models import Student
+            students = Student.objects.filter(uid__in=newly_verified).values_list('fcm_token', flat=True)
+            tokens = [t for t in students if t]
+            
+            if tokens:
+                send_fcm_notification(
+                    fcm_tokens=tokens,
+                    title="Chain Secured! ✅",
+                    body="You are now connected to the Teacher's network.",
+                    data_payload={"type": "connection_verified", "classroom_id": str(self.classroom_id)}
+                )
+    
+    
     # ---------------------------
     # Token Passing Logic (Edge Creation)
     # ---------------------------
@@ -111,6 +157,8 @@ class SessionObject:
         to_node = self.student_crypto_data.get(actual_to, {}).get('node_id', 'TEACHER')
 
         self.print_debug_state(f"Token Pass: ({from_node}) {actual_from} <-> ({to_node}) {actual_to}")
+        
+        self.check_and_notify_new_connections()
 
     # ---------------------------
     # Exception Handling
@@ -190,12 +238,10 @@ class GetTeacherSessionCredentialsView(APIView):
         if not session:
             return Response({"error": "No active session"}, status=status.HTTP_404_NOT_FOUND)
 
-        actual_teacher_uid = request.user.teacher.uid
-
         return Response({
             "k_class": session.k_class,
             "session_seed": "",       
-            "node_id": actual_teacher_uid
+            "node_id": 0
         }, status=status.HTTP_200_OK)
 
 class GetExceptionListView(APIView):
@@ -265,7 +311,13 @@ class FinalizeSessionView(APIView):
 
         results = session.finalize_attendance(present_uids_from_exception)
         today = timezone.now().date()
-
+        
+        present_tokens = []
+        absent_tokens = []
+        
+        current_time = localtime(timezone.now()).strftime("%I:%M %p") 
+        class_name = getattr(classroom, 'name', f"Class {classroom_id}")
+        
         for uid, is_present in results.items():
             student = Student.objects.get(uid=uid)
             AttendanceRecord.objects.create(
@@ -273,6 +325,29 @@ class FinalizeSessionView(APIView):
                 classroom=classroom,
                 date=today,
                 status="PRESENT" if is_present else "ABSENT"
+            )
+            
+            if student.fcm_token:
+                if is_present:
+                    present_tokens.append(student.fcm_token)
+                else:
+                    absent_tokens.append(student.fcm_token)
+                    
+        # --- UPGRADED: Detailed Notifications ---
+        if present_tokens:
+            send_fcm_notification(
+                present_tokens, 
+                "Attendance Finalized ✅", 
+                f"You were marked PRESENT for {class_name} at {current_time}.", 
+                {"type": "final", "status": "present"}
+            )
+            
+        if absent_tokens:
+            send_fcm_notification(
+                absent_tokens, 
+                "Attendance Finalized ❌", 
+                f"You were marked ABSENT for {class_name} at {current_time}.", 
+                {"type": "final", "status": "absent"}
             )
 
         del sessions[classroom_id]
@@ -314,6 +389,8 @@ class AddMasterNodeView(APIView):
 
         session.master_nodes.add(actual_uid)
         session.print_debug_state(f"Added Master Node: {actual_uid}")
+        
+        session.check_and_notify_new_connections()
         
         return Response({"message": f"Student {actual_uid} added as a master node"})
 
