@@ -57,7 +57,14 @@ class SessionObject:
                 'node_id': node_id
             }
             self.node_id_to_uid[node_id] = uid
-
+            
+        # ==========================================
+        # GPS DATA(FALLBACK VERSION)
+        # ==========================================
+        self.latitude = None
+        self.longitude = None
+        
+        
     # --- DEBUG HELPER ---
     def print_debug_state(self, trigger_event, newly_marked=None):
         print("\n=========================================")
@@ -432,6 +439,35 @@ class ListMasterNodesView(APIView):
         return Response({"master_nodes": master_list})
 
 
+
+class SetTeacherGPSView(APIView):
+    """Allows the teacher to set or update their GPS anchor for the session."""
+    permission_classes = [permissions.IsAuthenticated, IsTeacher]
+
+    def post(self, request, classroom_id):
+        lat = request.data.get("latitude")
+        lng = request.data.get("longitude")
+
+        if lat is None or lng is None:
+            return Response({"error": "Latitude and longitude are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        session = sessions.get(classroom_id)
+        if not session:
+            return Response({"error": "No active session found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Ensure only the teacher who started the session can update the GPS
+        if str(session.teacher_uid) != str(request.user.teacher.uid):
+            return Response({"error": "Unauthorized. Only the session creator can set GPS."}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            session.latitude = float(lat)
+            session.longitude = float(lng)
+            session.print_debug_state(f"Teacher GPS Set: {session.latitude}, {session.longitude}")
+            return Response({"message": "Teacher GPS coordinates anchored successfully."}, status=status.HTTP_200_OK)
+        except ValueError:
+            return Response({"error": "Invalid coordinate format."}, status=status.HTTP_400_BAD_REQUEST)
+
+
 # ---------------------------
 # Student Endpoints
 # ---------------------------
@@ -532,3 +568,31 @@ class ClassroomSessionStatusView(APIView):
             return Response({"active": True, "message": "Attendance session is active"})
         else:
             return Response({"active": False, "message": "No active attendance session"}, status=status.HTTP_200_OK)
+        
+
+class GetTeacherGPSView(APIView):
+    """Allows enrolled students to fetch the teacher's GPS anchor for distance calculation."""
+    permission_classes = [permissions.IsAuthenticated, IsStudent]
+
+    def get(self, request, classroom_id):
+        try:
+            student_uid = request.user.student.uid
+        except Student.DoesNotExist:
+            return Response({"error": "User is not a student"}, status=status.HTTP_403_FORBIDDEN)
+
+        session = sessions.get(classroom_id)
+        if not session:
+            return Response({"error": "No active session found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Verify the student is actually part of this session
+        actual_uid = next((k for k in session.student_crypto_data if str(k) == str(student_uid)), None)
+        if not actual_uid:
+            return Response({"error": "Not enrolled in this active session."}, status=status.HTTP_403_FORBIDDEN)
+
+        if session.latitude is None or session.longitude is None:
+            return Response({"error": "Teacher GPS coordinates have not been set yet."}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({
+            "latitude": session.latitude,
+            "longitude": session.longitude
+        }, status=status.HTTP_200_OK)

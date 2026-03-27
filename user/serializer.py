@@ -18,30 +18,34 @@ class UserSerializer(serializers.ModelSerializer):
 # Student Serializer (handles user creation & profile read)
 # ---------------------------
 class StudentSerializer(serializers.ModelSerializer):
-    # Write-only for creation
     username = serializers.CharField(write_only=True)
     password = serializers.CharField(write_only=True)
-    auth_key = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     class Meta:
         model = Student
-        # ✅ Added 'fcm_token' to the fields list
-        fields = ['id', 'username', 'password', 'uid', 'branch', 'auth_key', 'fcm_token']
+        fields = ['id', 'username', 'password', 'uid', 'branch', 'fcm_token']
+
+    # --- ADD THIS VALIDATION METHOD ---
+    def validate_username(self, value):
+        """
+        Check if the username already exists in the User table.
+        """
+        if User.objects.filter(username=value).exists():
+            raise serializers.ValidationError("A user with this username already exists.")
+        return value
+    # ----------------------------------
 
     def create(self, validated_data):
         username = validated_data.pop('username')
         password = validated_data.pop('password')
-        auth_key = validated_data.pop('auth_key', None)  # optional
 
         user = User.objects.create_user(username=username, password=password)
-        # Because of **validated_data, fcm_token will automatically be saved if provided
-        student = Student.objects.create(user=user, auth_key=auth_key, **validated_data)
+        student = Student.objects.create(user=user, **validated_data)
         return student
 
     def to_representation(self, instance):
-        """Return username from related User in profile GET"""
         rep = super().to_representation(instance)
-        rep['username'] = instance.user.username  # override username key
+        rep['username'] = instance.user.username
         return rep
     
 # ---------------------------

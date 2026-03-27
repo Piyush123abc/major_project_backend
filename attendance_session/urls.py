@@ -2,7 +2,9 @@
 from django.urls import path
 from .views import (
     GetSessionCredentialsView,
+    GetTeacherGPSView,
     GetTeacherSessionCredentialsView,
+    SetTeacherGPSView,
     StartSessionView,
     PassTokenView,
     AddExceptionView,
@@ -37,6 +39,9 @@ urlpatterns = [
     
     # NEW: Get session credentials for the teacher to act as a receiver
     path('teacher/classroom/<int:classroom_id>/credentials/', GetTeacherSessionCredentialsView.as_view(), name='teacher-session-credentials'),
+    
+    # post gps coordintes
+    path('classroom/<int:classroom_id>/teacher/gps/', SetTeacherGPSView.as_view(), name='set_teacher_gps'),
 
     # ---------------------------
     # Student-only endpoints
@@ -60,6 +65,10 @@ urlpatterns = [
     path('teacher/classroom/<int:classroom_id>/master-node/add/', AddMasterNodeView.as_view(), name='add-master-node'),
     path('teacher/classroom/<int:classroom_id>/master-node/remove/', RemoveMasterNodeView.as_view(), name='remove-master-node'),
     path('teacher/classroom/<int:classroom_id>/master-node/list/', ListMasterNodesView.as_view(), name='list-master-nodes'),
+    
+    
+    # get coordinates gps
+    path('classroom/<int:classroom_id>/student/gps/', GetTeacherGPSView.as_view(), name='get_teacher_gps'),
 ]
 
 
