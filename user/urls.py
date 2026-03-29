@@ -6,9 +6,12 @@ from rest_framework_simplejwt.views import (
 )
 
 from .views import (
+    AdminResetDeviceView,
     CreateAbsenceProposalView,
+    GetLoginChallengeView,
     StudentAbsenceProposalListView,
     StudentClassroomSearchAPIView,
+    StudentLoginVerifyView,
     StudentRegisterView,
     TeacherPendingProposalsView,
     TeacherRegisterView,
@@ -55,7 +58,13 @@ urlpatterns = [
     # JWT Login + Refresh
     path('login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('login/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-
+    
+    # urls.py
+    path('student/login/verify/', StudentLoginVerifyView.as_view(), name='student-login-verify'),
+    
+    # ✅ NEW: The endpoint to set/reset the Public Key
+    path('student/device/bind/', AdminResetDeviceView.as_view(), name='student-device-bind'),
+    
     # NEW: Updates the Firebase token for the logged-in Student or Teacher
     path('profile/update-fcm/', UpdateFCMTokenView.as_view(), name='update-fcm-token'),
     
@@ -102,5 +111,7 @@ urlpatterns = [
     
     # Teacher approves or rejects the group proposal
     path('teacher/group-absence-proposal/<int:id>/update/', TeacherUpdateGroupProposalView.as_view(), name='teacher-update-group-proposal'),
+    
+    path('student/login/challenge/', GetLoginChallengeView.as_view(), name='student-login-challenge'),
 
 ]

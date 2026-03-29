@@ -8,6 +8,8 @@ class Student(models.Model):
     uid = models.CharField(max_length=20, unique=True)  # College UID
     branch = models.CharField(max_length=50)            # e.g., CSE, ECE
     fcm_token = models.CharField(max_length=255, null=True, blank=True)
+    # ✅ Added the public key field to bind the device
+    public_key = models.TextField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.user.username} ({self.uid}, {self.branch})"

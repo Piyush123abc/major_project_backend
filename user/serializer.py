@@ -1,3 +1,6 @@
+import base64
+from django.core.cache import cache
+
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from .models import (
@@ -5,7 +8,15 @@ from .models import (
     GroupAbsenceProposal, GroupAbsenceParticipant
 )
 from django.utils import timezone
-
+from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.serialization import load_der_public_key
+from cryptography.hazmat.primitives.asymmetric.ec import ECDSA
+from cryptography.hazmat.primitives.hashes import SHA256
+from cryptography.hazmat.primitives.serialization import load_der_public_key
+from cryptography.exceptions import InvalidSignature
 # ---------------------------
 # User Serializer (read-only)
 # ---------------------------
@@ -23,7 +34,8 @@ class StudentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Student
-        fields = ['id', 'username', 'password', 'uid', 'branch', 'fcm_token']
+        # ✅ Added 'public_key' to the fields list
+        fields = ['id', 'username', 'password', 'uid', 'branch', 'fcm_token', 'public_key']
 
     # --- ADD THIS VALIDATION METHOD ---
     def validate_username(self, value):
@@ -47,7 +59,51 @@ class StudentSerializer(serializers.ModelSerializer):
         rep = super().to_representation(instance)
         rep['username'] = instance.user.username
         return rep
-    
+
+
+class StudentTokenSerializer(TokenObtainPairSerializer):
+    # We add 'signature' as an extra field the app must send
+    signature = serializers.CharField(write_only=True, allow_blank=True, required=False)
+
+    def validate(self, attrs):
+        # 1. Let the library check the username/password first
+        # This populates self.user if the password is correct
+        data = super().validate(attrs)
+
+        username = attrs.get(self.username_field)
+        signature_hex = attrs.get("signature")
+
+        # 2. Grab the original challenge from the RAM Cache
+        challenge = cache.get(f"login_challenge_{username}")
+        
+        # Default status for the demo
+        device_status = "SECURE"
+
+        if not challenge:
+            # If the 5 minutes passed, we have to stop here
+            raise serializers.ValidationError("Challenge expired. Please try again.")
+
+        try:
+            student = Student.objects.get(user=self.user)
+
+            signature_bytes = bytes.fromhex(signature_hex)
+            challenge_bytes = challenge.encode('utf-8')
+
+            # ✅ Load as generic DER public key (works for P-256 / ECDSA)
+            public_key_bytes = base64.b64decode(student.public_key)
+            loaded_public_key = load_der_public_key(public_key_bytes)
+
+            # ✅ Verify with ECDSA + SHA256
+            loaded_public_key.verify(signature_bytes, challenge_bytes, ECDSA(SHA256()))
+
+            cache.delete(f"login_challenge_{username}")
+
+        except (Student.DoesNotExist, InvalidSignature, Exception):
+            device_status = "WARNING"
+
+        # 4. Inject the status into the final JWT response
+        data['device_status'] = device_status
+        return data
 # ---------------------------
 # Teacher Serializer (handles user creation)
 # ---------------------------

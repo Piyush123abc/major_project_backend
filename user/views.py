@@ -1,3 +1,6 @@
+from django.core.cache import cache
+import secrets
+
 from rest_framework import generics, viewsets, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -19,9 +22,13 @@ from rest_framework import status
 from django.shortcuts import get_object_or_404
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
+from rest_framework_simplejwt.views import TokenObtainPairView
+from .serializer import StudentTokenSerializer
 
-
-
+class StudentLoginVerifyView(TokenObtainPairView):
+    # This view now handles Password check + Signature check
+    serializer_class = StudentTokenSerializer
+    
 # ------------------------------
 # Registration Views
 # ------------------------------
@@ -39,6 +46,84 @@ class TeacherRegisterView(generics.CreateAPIView):
 # ------------------------------
 # Student Views
 # ------------------------------
+
+# ---------------------------------------------------------
+# STEP 1 OF LOGIN: Generate the Cryptographic Challenge
+# ---------------------------------------------------------
+class GetLoginChallengeView(APIView):
+    # Anyone can request a challenge, no token required yet!
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        # 1. Get the username from the Flutter app's request
+        username = request.data.get('username')
+        
+        if not username:
+            return Response(
+                {"error": "Username is required to generate a challenge."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 2. Generate a secure, random 32-byte hex string (the "nonce" or "challenge")
+        # Example output: "a1b2c3d4e5f6..."
+        challenge = secrets.token_hex(32)
+        
+        # 3. Save it in Django's RAM cache so we can verify it in Step 2.
+        # We use the username as part of the cache key.
+        # timeout=300 means the app has exactly 5 minutes to sign and return it.
+        cache_key = f"login_challenge_{username}"
+        cache.set(cache_key, challenge, timeout=300)
+
+        # 4. Send the challenge back to the Flutter app
+        return Response(
+            {
+                "message": "Challenge generated successfully.",
+                "challenge": challenge
+            }, 
+            status=status.HTTP_200_OK
+        )
+
+# ---------------------------------------------------------
+# DEVICE BINDING & ADMIN RESET VIEW (The Backdoor)
+# ---------------------------------------------------------
+class AdminResetDeviceView(APIView):
+    # ✅ Only allow logged-in users with a valid JWT
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        new_public_key = request.data.get('public_key')
+        admin_password = request.data.get('admin_password')
+
+        # We no longer check for username here
+        if not new_public_key or not admin_password:
+            return Response(
+                {"error": "Missing public_key or admin_password."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 🚨 HARDCODED DEMO PASSWORD 🚨
+        if admin_password != "1234":
+            return Response(
+                {"error": "Unauthorized. Invalid Admin Password."}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            # ✅ Get the student securely from the JWT token
+            student = Student.objects.get(user=request.user)
+            
+            # Update their key
+            student.public_key = new_public_key
+            student.save()
+            
+            return Response(
+                {"message": f"Success! Device cryptographically bound to {request.user.username}."}, 
+                status=status.HTTP_200_OK
+            )
+            
+        except Student.DoesNotExist:
+            return Response({"error": "Student profile not found."}, status=status.HTTP_404_NOT_FOUND)
+        
 class EnrollmentCreateView(generics.CreateAPIView):
     serializer_class = EnrollmentSerializer
     permission_classes = [permissions.IsAuthenticated, IsStudent]
