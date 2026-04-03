@@ -3,11 +3,12 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
 from django.utils import timezone
+from attendance_session.models import SecurityAnomaly
 from user.models import Student, Teacher, Classroom, AttendanceRecord
 from user.permission import IsTeacher, IsStudent
 import secrets
 from attendance_system.utils import send_fcm_notification
-from django.utils.timezone import localtime
+from django.utils.timezone import localtime, timedelta
 
 # ---------------------------
 # Session storage (in-memory)
@@ -596,3 +597,86 @@ class GetTeacherGPSView(APIView):
             "latitude": session.latitude,
             "longitude": session.longitude
         }, status=status.HTTP_200_OK)
+        
+        
+# ---------------------------
+# Security Anamoly
+# ---------------------------
+def create_anomaly_report(student, anomaly_type_int, device_id="Unknown", metadata=None):
+    """
+    Internal engine to log threats and notify the user. 
+    Accepts a 'student' object instance.
+    """
+    time_threshold = timezone.now() - timedelta(hours=24)
+    
+    # 1. Check deduplication (Prevent notification spam)
+    if SecurityAnomaly.objects.filter(
+        student=student, 
+        anomaly_type=anomaly_type_int, 
+        timestamp__gte=time_threshold
+    ).exists():
+        print(f"DEBUG [Anomaly Engine]: Ignored. {student.uid} already triggered this anomaly type in the last 24h.")
+        return {"status": "ignored", "notification_sent": False}
+
+    # 2. Create the anomaly record
+    anomaly = SecurityAnomaly.objects.create(
+        student=student,
+        anomaly_type=anomaly_type_int,
+        device_id=device_id,
+        metadata=metadata or {}
+    )
+
+    notification_sent = False
+
+    # 3. Fire the FCM Notification
+    if student.fcm_token:
+        print(f"DEBUG [Anomaly Engine]: FCM Token found for {student.uid}. Attempting dispatch...")
+        
+        anomaly_label = anomaly.get_anomaly_type_display() 
+        current_time = localtime(anomaly.timestamp).strftime("%I:%M %p")
+        
+        try:
+            send_fcm_notification(
+                fcm_tokens=[student.fcm_token],
+                title="Security Alert ⚠️",
+                body=f"Protocol breach logged: {anomaly_label} detected at {current_time}.",
+                data_payload={
+                    "type": "security_anomaly",
+                    "anomaly_id": str(anomaly.id),
+                    "anomaly_label": anomaly_label,
+                    "timestamp": current_time
+                }
+            )
+            notification_sent = True
+            print("DEBUG [Anomaly Engine]: Notification successfully handed off to FCM util.")
+        except Exception as e:
+            print(f"DEBUG [Anomaly Engine]: FAILED to send notification. Error: {str(e)}")
+            
+    else:
+        print(f"DEBUG [Anomaly Engine]: SKIPPED notification. Student {student.uid} has no FCM token in the database.")
+
+    # 4. Return detailed state
+    return {
+        "status": "success", 
+        "anomaly_id": anomaly.id,
+        "notification_sent": notification_sent
+    }
+    
+class FrontendAnomalyReportView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        # 🔒 Grab the actual Student instance attached to the logged-in User
+        student_instance = request.user.student 
+        
+        anomaly_type_int = request.data.get('anomaly_type') 
+        device_id = request.data.get('device_id', 'Unknown')
+        context = request.data.get('context', {})
+
+        if not anomaly_type_int:
+            return Response({"error": "Missing anomaly type"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Pass the instance directly
+        create_anomaly_report(student_instance, anomaly_type_int, device_id, context)
+
+        return Response({"message": "Report processed"}, status=status.HTTP_200_OK)

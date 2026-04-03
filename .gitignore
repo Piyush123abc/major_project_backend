@@ -34,3 +34,5 @@ staticfiles/
 # Firebase Admin SDK Credentials
 firebase_credentials.json
 
+# Google Cloud Service Account Keys
+play-integrity-key.json
