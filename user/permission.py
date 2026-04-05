@@ -29,3 +29,11 @@ class IsTeacherOrStudent(BasePermission):
             and (Teacher.objects.filter(user=request.user).exists() 
                  or Student.objects.filter(user=request.user).exists())
         )
+
+class IsSuperUser(BasePermission):
+    """
+    Allows access only to Django superusers.
+    """
+    def has_permission(self, request, view):
+        # Check if the user is logged in AND has the superuser flag set to True
+        return bool(request.user and request.user.is_authenticated and request.user.is_superuser)

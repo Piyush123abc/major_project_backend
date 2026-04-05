@@ -5,7 +5,7 @@ from rest_framework import status, permissions
 from django.utils import timezone
 from attendance_session.models import SecurityAnomaly
 from user.models import Student, Teacher, Classroom, AttendanceRecord
-from user.permission import IsTeacher, IsStudent
+from user.permission import IsSuperUser, IsTeacher, IsStudent
 import secrets
 from attendance_system.utils import send_fcm_notification
 from django.utils.timezone import localtime, timedelta
@@ -680,3 +680,104 @@ class FrontendAnomalyReportView(APIView):
         create_anomaly_report(student_instance, anomaly_type_int, device_id, context)
 
         return Response({"message": "Report processed"}, status=status.HTTP_200_OK)
+    
+class AdminSessionStateView(APIView):
+    """
+    God-mode view for SuperAdmins to monitor the live BLE mesh.
+    Polls the in-memory 'sessions' object and maps UIDs to real names.
+    """
+    permission_classes = [permissions.IsAuthenticated, IsSuperUser]
+
+    def get(self, request, classroom_id):
+        # 1. Check if the session is currently live in RAM
+        session = sessions.get(classroom_id)
+        if not session:
+            return Response({
+                "active": False, 
+                "message": "No active attendance session for this classroom."
+            }, status=status.HTTP_200_OK)
+
+        # 2. Fetch classroom and student details to map UIDs to real Usernames
+        try:
+            classroom = Classroom.objects.get(id=classroom_id)
+        except Classroom.DoesNotExist:
+            return Response({"error": "Classroom not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Grab all enrolled students to map UIDs to Usernames for the UI
+        enrolled_students = Student.objects.filter(
+            enrollments__classroom=classroom
+        ).select_related('user')
+        
+        uid_to_name = {str(student.uid): student.user.username for student in enrolled_students}
+        
+        # Add the teacher's UID to the name map
+        teacher_username = getattr(classroom.teacher.user, 'username', "Teacher")
+        uid_to_name[str(session.teacher_uid)] = teacher_username
+
+        # 3. Build Nodes and Edges
+        nodes = []
+        edges = []
+        seen_edges = set()
+
+        # Iterate through the graph dictionary (keys are UIDs)
+        for uid in session.graph.keys():
+            str_uid = str(uid)
+            
+            # Determine Node Type for UI Styling
+            if str_uid == str(session.teacher_uid):
+                node_type = "teacher"
+            elif uid in session.master_nodes:
+                node_type = "master"
+            else:
+                node_type = "student"
+
+            nodes.append({
+                "id": str_uid,
+                "label": uid_to_name.get(str_uid, f"Unknown ({str_uid[:4]})"),
+                "type": node_type,
+                "is_exception": uid in session.exception_list,
+                "is_marked": uid in session.marked_exceptions
+            })
+
+        # Build Edges (Undirected pairs)
+        for node_uid, connections in session.graph.items():
+            for conn_uid in connections:
+                # Sort the pair to ensure we don't send A->B AND B->A separately
+                edge_pair = tuple(sorted([str(node_uid), str(conn_uid)]))
+                
+                if edge_pair not in seen_edges:
+                    seen_edges.add(edge_pair)
+                    edges.append({
+                        "id": f"edge_{edge_pair[0]}_{edge_pair[1]}",
+                        "source": edge_pair[0],
+                        "target": edge_pair[1]
+                    })
+
+        # 4. FIXED TELEMETRY LOGIC
+        # total_enrolled: Count from DB
+        total_enrolled = enrolled_students.count()
+        
+        # total_connected: Count students who have at least ONE connection in the graph
+        # We exclude the teacher from this count.
+        total_connected = 0
+        for uid, connections in session.graph.items():
+            if str(uid) != str(session.teacher_uid):
+                if len(connections) > 0:
+                    total_connected += 1
+        
+        pending_exceptions = len(session.exception_list - session.marked_exceptions)
+
+        return Response({
+            "active": True,
+            "telemetry": {
+                "total_enrolled": total_enrolled,
+                "total_connected": total_connected,
+                "orphaned": total_enrolled - total_connected,
+                "master_nodes_count": len(session.master_nodes),
+                "pending_exceptions": pending_exceptions
+            },
+            "graph": {
+                "nodes": nodes,
+                "edges": edges
+            }
+        }, status=status.HTTP_200_OK)

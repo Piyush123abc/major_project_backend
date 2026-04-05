@@ -1,6 +1,7 @@
 # attendance_session/urls.py
 from django.urls import path
 from .views import (
+    AdminSessionStateView,
     FrontendAnomalyReportView,
     GetSessionCredentialsView,
     GetTeacherGPSView,
@@ -74,6 +75,9 @@ urlpatterns = [
     #security anamoly
     # Route for the Flutter App (JWT / Session Token required in headers)
     path('security/student-report/', FrontendAnomalyReportView.as_view(), name='student-anomaly-report'),
+    
+    #admin
+    path('admin/session/<int:classroom_id>/state/', AdminSessionStateView.as_view(), name='admin-session-state'),
 ]
 
 
