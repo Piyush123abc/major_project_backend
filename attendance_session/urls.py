@@ -7,6 +7,7 @@ from .views import (
     GetTeacherGPSView,
     GetTeacherSessionCredentialsView,
     SetTeacherGPSView,
+    SimulateMeshStepView,
     StartSessionView,
     PassTokenView,
     AddExceptionView,
@@ -78,6 +79,8 @@ urlpatterns = [
     
     #admin
     path('admin/session/<int:classroom_id>/state/', AdminSessionStateView.as_view(), name='admin-session-state'),
+    
+    path('admin/session/<int:classroom_id>/simulate/', SimulateMeshStepView.as_view(), name='admin-session-simulate'),
 ]
 
 

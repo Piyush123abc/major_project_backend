@@ -1,4 +1,5 @@
 # attendance_session/views.py
+import random 
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
@@ -374,7 +375,7 @@ class FinalizeSessionView(APIView):
         })
 
 class ActiveSessionsView(APIView):
-    permission_classes = [permissions.IsAuthenticated, IsTeacher]
+    permission_classes = [permissions.IsAuthenticated, (IsTeacher | IsSuperUser)]
 
     def get(self, request):
         return Response({"active_sessions": list(sessions.keys())})
@@ -781,3 +782,40 @@ class AdminSessionStateView(APIView):
                 "edges": edges
             }
         }, status=status.HTTP_200_OK)
+        
+        
+       
+        
+class SimulateMeshStepView(APIView):
+    """God-Mode endpoint to simulate BLE mesh growth for presentations."""
+    permission_classes = [permissions.IsAuthenticated, IsSuperUser]
+
+    def post(self, request, classroom_id):
+        # We import sessions here to access the live RAM dictionary
+        from attendance_session.views import sessions 
+        
+        session = sessions.get(classroom_id)
+        if not session:
+            return Response({"error": "No active session found."}, status=400)
+
+        all_uids = list(session.graph.keys())
+        if len(all_uids) < 3:
+            return Response({"message": "Not enough students enrolled to simulate."})
+
+        edges_added = 0
+        # Simulate 5 random connections happening in the room
+        for _ in range(5):
+            node_a = random.choice(all_uids)
+            node_b = random.choice(all_uids)
+            if node_a != node_b:
+                session.graph[node_a].add(node_b)
+                session.graph[node_b].add(node_a)
+                edges_added += 1
+
+        # Randomly assign a master node if none exist
+        if not session.master_nodes and len(all_uids) > 1:
+            candidates = [u for u in all_uids if str(u) != str(session.teacher_uid)]
+            if candidates:
+                session.master_nodes.add(random.choice(candidates))
+
+        return Response({"message": f"Simulated {edges_added} new BLE connections!"})

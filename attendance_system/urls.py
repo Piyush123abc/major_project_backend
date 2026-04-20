@@ -36,6 +36,8 @@ urlpatterns = [
 
     # Attendance session app (token passing, exceptions, finalize attendance)
     path('session/', include('attendance_session.urls')),
+    
+    path('api/god-mode/', include('user.admin_urls')),
 ]
 
 if settings.DEBUG:

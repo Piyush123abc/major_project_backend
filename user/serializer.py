@@ -70,72 +70,85 @@ class StudentTokenSerializer(TokenObtainPairSerializer):
     integrity_token = serializers.CharField(write_only=True, allow_blank=True, required=False)
 
     def validate(self, attrs):
-        # 1. Standard Django Password Check
-        data = super().validate(attrs)
+            # 1. Standard Django Password/User Check
+            data = super().validate(attrs)
 
-        username = attrs.get(self.username_field)
-        signature_hex = attrs.get("signature")
-        integrity_token = attrs.get("integrity_token")
+            username = attrs.get(self.username_field)
+            signature_hex = attrs.get("signature")
+            integrity_token = attrs.get("integrity_token")
 
-        # 2. Grab the challenge from RAM cache
-        challenge = cache.get(f"login_challenge_{username}")
-        
-        # Start by assuming the device is completely safe
-        device_status = "SECURE"
-
-        if not challenge:
-            raise serializers.ValidationError("Challenge expired. Please try again.")
-
-        # ==========================================
-        # 3. PLAY INTEGRITY CHECK (App/Software Verification)
-        # ==========================================
-        if integrity_token:
-            # # ✅ LIVE: Calling the Google utility we wrote earlier!
-            # from .utils.integrity import verify_play_integrity_token
+            # 2. Grab the challenge from RAM cache
+            challenge = cache.get(f"login_challenge_{username}")
+            if not challenge:
+                raise serializers.ValidationError("Challenge expired. Please try again.")
             
-            # Passing your exact package name
-            is_genuine = verify_play_integrity_token(
-                integrity_token, 
-                package_name="com.piyush123abc.attendance_app"
-            )
+            # Track individual check results
+            is_integrity_secure = True
+            is_binding_secure = True
+
+            # ==========================================
+            # 3. PLAY INTEGRITY CHECK (Software)
+            # ==========================================
+            if integrity_token:
+                from .utils.integrity import verify_play_integrity_token
+                
+                is_genuine = verify_play_integrity_token(
+                    integrity_token, 
+                    package_name="com.piyush123abc.attendance_app"
+                )
+                
+                if not is_genuine:
+                    print("❌ [SECURITY] Software Integrity Check Failed!")
+                    is_integrity_secure = False
+            else:
+                # If no token is sent, we consider integrity failed in production
+                is_integrity_secure = False
+
+            # ==========================================
+            # 4. HARDWARE BINDING CHECK (Physical Device)
+            # ==========================================
+            try:
+                student = Student.objects.get(user=self.user)
+                
+                if not signature_hex:
+                    raise Exception("Missing hardware signature")
+
+                signature_bytes = bytes.fromhex(signature_hex)
+                challenge_bytes = challenge.encode('utf-8')
+
+                public_key_bytes = base64.b64decode(student.public_key)
+                loaded_public_key = load_der_public_key(public_key_bytes)
+                
+                # Verify the cryptographic signature
+                loaded_public_key.verify(signature_bytes, challenge_bytes, ECDSA(SHA256()))
+
+                # Successfully verified, remove challenge from cache
+                cache.delete(f"login_challenge_{username}")
+
+            except (Student.DoesNotExist, InvalidSignature, Exception) as e:
+                print(f"⚠️ [SECURITY] Hardware Binding Check Failed: {e}")
+                is_binding_secure = False
+
+            # ==========================================
+            # 5. COMPATIBILITY LOGIC (Priority Decisions)
+            # ==========================================
             
-            if not is_genuine:
-                print("❌ [DEBUG] Token is invalid or app is sideloaded!")
-                device_status = "INTEGRITY_FAILED" 
-        else:
-            print("⚠️ [DEBUG] No Integrity Token provided. Skipping Play API check.")
-
-        # ==========================================
-        # 4. HARDWARE BINDING CHECK (Physical Device Verification)
-        # ==========================================
-        try:
-            student = Student.objects.get(user=self.user)
+            # We decide the final 'device_status' based on the worst-case scenario.
+            # This keeps the Flutter UI logic 100% compatible.
             
-            # If they didn't send a signature at all, instantly fail the binding
-            if not signature_hex:
-                raise Exception("Missing hardware signature")
+            if not is_integrity_secure:
+                # Red Dialog in Flutter
+                device_status = "INTEGRITY_FAILED"
+            elif not is_binding_secure:
+                # Orange Dialog in Flutter
+                device_status = "BINDING_FAILED"
+            else:
+                # Green Verified Badge in Flutter
+                device_status = "SECURE"
 
-            signature_bytes = bytes.fromhex(signature_hex)
-            challenge_bytes = challenge.encode('utf-8')
-
-            public_key_bytes = base64.b64decode(student.public_key)
-            loaded_public_key = load_der_public_key(public_key_bytes)
-            
-            # Verify the math
-            loaded_public_key.verify(signature_bytes, challenge_bytes, ECDSA(SHA256()))
-
-            # Only delete the challenge if it successfully passes!
-            cache.delete(f"login_challenge_{username}")
-
-        except (Student.DoesNotExist, InvalidSignature, Exception) as e:
-            print(f"⚠️ [DEBUG] Hardware Binding Failed: {e}")
-            # If this fails AND integrity failed, we prioritize showing the Hardware warning, 
-            # or you can handle it however you want in Flutter. Here we overwrite the status.
-            device_status = "BINDING_FAILED"
-
-        # 5. Inject the final status into the JWT response for Flutter
-        data['device_status'] = device_status
-        return data
+            # Inject final status into the response
+            data['device_status'] = device_status
+            return data
 # ---------------------------
 # Teacher Serializer (handles user creation)
 # ---------------------------
@@ -155,6 +168,11 @@ class TeacherSerializer(serializers.ModelSerializer):
         # **validated_data will handle saving the fcm_token
         teacher = Teacher.objects.create(user=user, **validated_data)
         return teacher
+    
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        rep['username'] = instance.user.username
+        return rep
 
 
 # ---------------------------

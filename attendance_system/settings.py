@@ -29,7 +29,7 @@ SECRET_KEY = 'django-insecure-!ik%-ei1f7ib#xjs4*m9ncq!5p7g2eye%94beycpx7ws3%5p=l
 DEBUG = True
 
 # settings.py
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '10.0.2.2','*','192.168.29.146','10.10.121.94','10.10.46.238','intershifting-heterogonously-angella.ngrok-free.dev']
+ALLOWED_HOSTS = ['*']
 
 CSRF_TRUSTED_ORIGINS = ['https://intershifting-heterogonously-angella.ngrok-free.dev']
 
@@ -47,6 +47,7 @@ INSTALLED_APPS = [
 
 # External apps
 EXTERNAL_APPS = [
+    'corsheaders',
     'rest_framework',
 ]
 
@@ -60,6 +61,9 @@ INSTALLED_APPS += EXTERNAL_APPS + INTERNAL_APPS
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # 🌟 ADD THIS EXACT LINE HERE 🌟
+    'corsheaders.middleware.CorsMiddleware',
+    
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -175,3 +179,28 @@ if not firebase_admin._apps:
         print("✅ Firebase Admin SDK Initialized Successfully")
     except Exception as e:
         print(f"⚠️ Firebase Initialization Error: {e}")
+        
+        
+        
+        
+# ==========================================
+# CORS SETTINGS FOR REACT ADMIN DASHBOARD
+# ==========================================
+# Allow your local React app to communicate with Django
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+# Allow the browser to send the JWT Authorization header
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "dnt",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+]
