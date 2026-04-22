@@ -190,6 +190,8 @@ if not firebase_admin._apps:
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "https://intershifting-heterogonously-angella.ngrok-free.dev",
+    "https://major-project-admin-page-git-main-piyush123abcs-projects.vercel.app",
 ]
 
 # Allow the browser to send the JWT Authorization header
@@ -203,4 +205,15 @@ CORS_ALLOW_HEADERS = [
     "user-agent",
     "x-csrftoken",
     "x-requested-with",
+    "ngrok-skip-browser-warning",
+]
+
+# 💡 This allows any preview URL from your Vercel project to work automatically
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://major-project-admin-page-.*\.vercel\.app$",
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://intershifting-heterogonously-angella.ngrok-free.dev",
+    "https://major-project-admin-page-git-main-piyush123abcs-projects.vercel.app",
 ]
